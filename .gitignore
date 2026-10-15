@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Secrets and environment config — NEVER commit
+.env
+*.pem
+*.key
+credentials
+.aws/
+
+# Local storage fallback used when STORAGE_MODE=local
+local-storage/
+
+# IDE
+.idea/
+.vscode/
+
+# Logs and OS files
+*.log
+npm-debug.log*
+.DS_Store

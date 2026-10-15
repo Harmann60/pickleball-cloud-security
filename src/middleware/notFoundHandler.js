@@ -1,0 +1,7 @@
+'use strict';
+
+function notFoundHandler(req, res) {
+  res.status(404).json({ ok: false, message: `Route not found: ${req.method} ${req.path}` });
+}
+
+module.exports = notFoundHandler;
