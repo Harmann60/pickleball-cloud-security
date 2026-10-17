@@ -1,280 +1,320 @@
-# 🥒 Pickleball Cloud Security
+# Pickleball Cloud Security
 
-### Secure Pickleball Court Management System Using AWS Cloud Security Best Practices
+**Secure Pickleball Court Management System using AWS cloud security best practices** — a college mini-project demonstrating how IAM least privilege, encrypted private storage, network restriction, and audit logging protect a small web application in the cloud.
 
-[![Node.js](https://img.shields.io/badge/Node.js-22.x-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-4.x-000000?logo=express&logoColor=white)](https://expressjs.com/)
-[![AWS](https://img.shields.io/badge/AWS-EC2%20%7C%20IAM%20%7C%20S3%20%7C%20CloudTrail%20%7C%20CloudWatch-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/)
-[![Tests](https://img.shields.io/badge/tests-23%20passing-brightgreen)](#-testing)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![AWS](https://img.shields.io/badge/AWS-EC2%20IAM%20S3%20CloudTrail-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/)
+[![Tests](https://img.shields.io/badge/tests-23%20passing-brightgreen)](#running-tests)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> A college mini-project demonstration of how **AWS cloud security best practices** — least-privilege IAM, encrypted private storage, restricted networking, audit logging and monitoring — protect a small court-booking application from unauthorized access, data breaches and cloud misconfigurations.
->
-> ⚠️ **This is a demonstration system with fictional data. It is not production-ready and must not be used with real personal or payment data.**
+> **Scope note:** this is a security demonstration with fictional data. It is not a production booking platform. Admin access uses a prototype shared bearer token — not an authentication system — and the app is served over HTTP only.
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [Problem Statement](#-problem-statement)
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Security Design](#-security-design)
-- [Project Structure](#-project-structure)
-- [Local Development](#-local-development)
-- [Testing](#-testing)
-- [AWS Deployment](#-aws-deployment)
-- [Cost Control](#-cost-control)
-- [Roadmap](#-roadmap)
-- [Limitations & Future Work](#-limitations--future-work)
+- [Project Overview](#project-overview)
+- [Problem Statement & Academic Relevance](#problem-statement--academic-relevance)
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Security Controls](#security-controls)
+- [Technology Stack](#technology-stack)
+- [Repository Structure](#repository-structure)
+- [Prerequisites](#prerequisites)
+- [Local Installation & Development](#local-installation--development)
+- [Environment Configuration](#environment-configuration)
+- [Running Tests](#running-tests)
+- [AWS Deployment Overview](#aws-deployment-overview)
+- [Security Verification & Evidence](#security-verification--evidence)
+- [Cost Considerations](#cost-considerations)
+- [Known Limitations](#known-limitations)
+- [Future Improvements](#future-improvements)
+- [License](#license)
 
 ---
 
-## 🎯 Problem Statement
+## Project Overview
+
+The application is a small Express web app for a fictional pickleball club. It presents a dashboard of courts, bookings and tournaments; accepts validated booking submissions; and exposes a server-side-authorized administrative API that can store tournament reports in Amazon S3.
+
+The application code itself is deliberately simple. The project's value is in the **cloud security layer around it**: an EC2 instance role instead of access keys, a private encrypted S3 bucket, a restricted security group, management-event auditing with CloudTrail, and an automated test suite that proves the authorization and validation controls work.
+
+**Status of claims in this README:** each security control below is labelled *Verified* (evidence available now), *Partially verified* (code or prior console check exists, but artifacts are not committed to this repository), or *Planned*. No control is described as production-grade.
+
+---
+
+## Problem Statement & Academic Relevance
 
 > How can AWS cloud security best practices be implemented to protect a Pickleball Court Management System from unauthorized access, data breaches, cloud misconfigurations, and security threats?
 
-The project answers this with a small but **fully working** web application deployed on AWS, where every component demonstrates a specific security control that can be tested, evidenced and explained.
-
-**Academic coverage:** IAM · Secure cloud architecture · Data protection & encryption · Cloud misconfigurations · Monitoring & logging · Cloud security best practices.
-
----
-
-## ✨ Features
-
-| Feature | Description |
+| Syllabus area | Where it appears in this project |
 |---|---|
-| 📊 **Dashboard** | Live view of fictional courts, upcoming bookings and tournaments |
-| 📅 **Court booking** | Sample booking form with strict **server-side validation** and double-booking prevention |
-| 🔐 **Admin view** | Server-side authorization (Bearer token) — API returns **403** even when called directly with `curl` |
-| 📁 **Tournament reports** | Authorized upload of tournament reports to **private, encrypted Amazon S3** (via EC2 instance role — no access keys) |
-| 🛡️ **Security headers** | CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy` via Helmet |
-| 🧪 **Test suite** | 23 automated tests covering validation, authorization and API behaviour |
-| 🪵 **Audit & monitoring** | CloudTrail management-event logging + CloudWatch metric filter & alarm |
+| Identity & Access Management | EC2 instance role with a least-privilege S3 policy; no access keys in code or Git |
+| Secure cloud architecture | Single small EC2 instance, security-group-restricted network exposure |
+| Data protection & encryption | Private S3 bucket, SSE-S3 (AES-256) at rest, encrypted EBS root volume |
+| Cloud misconfigurations | Controlled finding-then-remediation exercise on an isolated test policy *(evidence pending)* |
+| Monitoring & logging | CloudTrail management-event evidence for API activity |
+| Cloud security best practices | Least privilege, defence in depth, secret hygiene, honest documentation of limitations |
 
 ---
 
-## 🏗️ Architecture
+## Key Features
 
+- **Dashboard** — fictional courts, upcoming bookings and tournaments rendered with no server-side secrets
+- **Booking submission** — strict server-side validation (name/email/date/time/duration rules) plus double-booking rejection with HTTP 409
+- **Administrative API** — every admin endpoint enforces a server-side bearer-token check; requests without the token receive HTTP 403 even when called directly with `curl`
+- **Tournament report storage** — authorized uploads go to an S3 `tournament-reports/` prefix via the EC2 instance role, or to a local directory in development mode
+- **Hardened HTTP behaviour** — Helmet security headers (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`), 10 KB JSON body limit, centralized error handling that never returns stack traces to clients
+- **Automated test suite** — 23 tests covering validation, authorization and API behaviour
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TD
+    ssh["Operator SSH client"]
+    client["Browser / HTTP client<br/>No public inbound route to :3000 at last check"]
+    sg["Security group<br/>Inbound 22/tcp from a single IPv4 /32<br/>No public inbound rule for 3000"]
+    ec2["EC2 t3.micro · Amazon Linux 2023<br/>Node.js + Express · systemd service<br/>HTTP listener on 0.0.0.0:3000"]
+    routes["Application routes<br/>/api/dashboard · /api/bookings<br/>/api/admin/* (bearer-token authorized)"]
+    role["IAM instance role<br/>temporary credentials · no access keys"]
+    s3[("Private S3 bucket<br/>Block Public Access: all 4 settings<br/>SSE-S3 AES-256 · prefix tournament-reports/")]
+    ct["CloudTrail<br/>management events"]
+    apiact["AWS API activity<br/>console / CLI"]
+
+    ssh -->|"SSH :22"| sg
+    client -.->|"HTTP only · no TLS verified"| sg
+    sg --> ec2
+    ec2 --> routes
+    routes -->|"PutObject via instance role"| role
+    role --> s3
+    apiact --> ct
 ```
-                         ┌──────────────────────────────────────────────┐
-  Browser ──── HTTP:3000 ─►  EC2 t3.micro (Amazon Linux 2023)           │
-                         │   ┌────────────────────────────────────┐    │
-                         │   │  Node.js + Express application     │    │
-                         │   │  • Dashboard  • Booking  • Admin   │    │
-                         │   └────────────────────────────────────┘    │
-                         │        Instance Role (least privilege)      │
-                         └───────────────────┬──────────────────────────┘
-                                             │ s3:PutObject only
-                                             ▼
-                          ┌────────────────────────────────────────┐
-                          │  Amazon S3 — private bucket            │
-                          │  ✓ Block Public Access (all 4)         │
-                          │  ✓ SSE-S3 encryption (AES-256)         │
-                          │  ✓ Deny-unencrypted / public policies  │
-                          └────────────────────────────────────────┘
 
-   Console / CLI activity ──► CloudTrail (mgmt events, multi-region)
-                                        │
-                                        ▼
-                          CloudWatch log metric filter ──► Alarm ──► SNS e-mail
-```
+**Network exposure.** The security group allows inbound SSH (22/tcp) from a single IPv4 `/32` source only. No public inbound rule for the application port (3000) was present at the last console check — so the diagram deliberately shows no public browser-to-app connection. Outbound traffic is unrestricted (needed for package updates, S3 and AWS API calls); this is a documented trade-off, not an oversight to hide.
 
-**Network exposure — nothing else is open:**
+**HTTP vs HTTPS.** The application listens on plain HTTP port 3000. No valid HTTPS endpoint (TLS certificate, Application Load Balancer or CloudFront) has been implemented or verified. HTTPS is future work.
 
-| Direction | Port | Source | Rationale |
+---
+
+## Security Controls
+
+| Area | Implemented control | Evidence / verification | Status |
 |---|---|---|---|
-| Inbound | 22 (SSH) | Verified public IP `/32` only | Never `0.0.0.0/0` |
-| Inbound | 3000 (app) | `0.0.0.0/0` | Demo web app; no secrets in transit |
-| Outbound | all | `0.0.0.0/0` | Package updates, S3, CloudWatch *(documented limitation)* |
+| IAM & credentials | EC2 instance role; SDK default credential chain; no access keys anywhere in the repo | Code: `src/services/storage.js`; role deployment reported by operator | Partially verified |
+| Least-privilege S3 access | Role restricted to `s3:PutObject` on the `tournament-reports/` prefix | Operator-reported; **policy JSON not committed to this repository** | Partially verified |
+| S3 Block Public Access | All four account/bucket public-access settings enabled | Operator console check; no repo artifact | Partially verified |
+| S3 encryption at rest | SSE-S3 (AES-256) as bucket default; per-object `ServerSideEncryption: AES256` in code | Code verified; bucket setting operator-reported | Partially verified |
+| EC2 volume encryption | Encrypted EBS root volume | Operator console check at launch | Partially verified |
+| Security group restriction | SSH limited to one `/32` source; no public inbound rule for :3000 | Operator console check | Partially verified |
+| Admin API authorization | Server-side bearer token, constant-time comparison, 403 on missing/wrong token | Automated tests (`tests/api.test.js`) — pass | **Verified** |
+| Input validation | Regex + length + domain checks; credential-material rejection on uploads | Automated tests (`tests/validator.test.js`) — pass | **Verified** |
+| Security headers | Helmet with CSP, frame/deny options, `nosniff`, referrer policy | Config in `src/app.js`; headers confirmed in local responses | **Verified** (local) |
+| Error handling | Centralized handler; internals never sent to clients | Code review of `src/middleware/errorHandler.js` | Implemented |
+| Git secret hygiene | `.env`, `*.pem`, `*.key`, `credentials`, `local-storage/` ignored; no secret files tracked | `git ls-files` inspection | **Verified** |
+| Automated tests | 23 tests: validation, authz, double-booking, headers, 404 handling | Suite executed at README revision: 23 pass / 0 fail | **Verified** (local) |
+| CloudTrail auditing | Management-event evidence collected for AWS API activity | Operator-reported evidence; trail configuration not in repo | Partially verified |
+| CloudWatch alarm / SNS | — | Not implemented | **Planned** |
+| HTTPS | — | Not implemented | **Planned** |
+| IAM user with MFA (admin demo) | — | Not evidenced in repository | **Planned** |
 
 ---
 
-## 🛡️ Security Design
+## Technology Stack
 
-### Identity & Access Management
-- **EC2 instance role** — the application calls S3 with temporary credentials delivered by the instance metadata service. **No AWS access keys exist in code, the environment, or Git.**
-- **Least privilege** — the role's policy allows only `s3:PutObject` on `arn:aws:s3:::pickleball-reports-*/tournament-reports/*`. Nothing else.
-- **Separate IAM user** for administrative demonstration, console-only, MFA-enabled.
-- **Root account**: MFA enforced, never used for daily work.
-
-### Data protection
-- S3 **Block Public Access**: all four settings enabled.
-- **SSE-S3 (AES-256)** encryption at rest, enforced bucket-wide.
-- Bucket policy additionally **denies unencrypted uploads** and **rejects non-HTTPS** requests.
-- Unauthorized access verified as **AccessDenied** in security tests.
-
-### Application security
-- **Server-side validation** on every input (regex + length + domain checks).
-- **Server-side authorization** — hiding UI is never treated as access control; every admin API call is verified server-side with constant-time token comparison.
-- **No `innerHTML`** — the frontend renders all dynamic content via `textContent`, preventing DOM XSS.
-- **Centralized error handler** — stack traces never reach clients; details are logged server-side only.
-- **Credential-material rejection** — the report upload refuses content containing private keys or AWS secret patterns (defence in depth).
-- **Prototype labelling** — the token-based admin control is explicitly documented as a prototype, not an authentication system.
-
-### Monitoring & audit
-- **CloudTrail**: multi-region trail, management events only (first copy free), delivered to CloudWatch Logs.
-- **CloudWatch**: metric filter on IAM-sensitive API calls → alarm → SNS e-mail notification.
-- Investigation runbook: find event in trail → identify principal, source IP, action → contain → remediate.
-
-### Misconfiguration lab
-A controlled, reversible misconfiguration is demonstrated in an isolated test policy (over-permissive IAM statement), with evidence of **finding → risk → remediation → verification**.
+| Layer | Choice | Notes |
+|---|---|---|
+| Runtime | Node.js ≥ 20 | Development on Node 22 LTS; deployed runtime observed as 20.20.2 |
+| Web framework | Express 4.x | `src/app.js` — Helmet, JSON body limit, static files |
+| Frontend | Vanilla HTML/CSS/JS | Dynamic content rendered via `textContent` only (no `innerHTML`) |
+| AWS SDK | `@aws-sdk/client-s3` v3 | Loaded only when `STORAGE_MODE=s3` |
+| Tests | Built-in `node:test` runner | Zero extra test dependencies |
+| Hosting | Amazon EC2 `t3.micro`, Amazon Linux 2023 | Managed by systemd (`pickleball-app`) |
+| Storage | Amazon S3 | Private, encrypted, `tournament-reports/` prefix |
+| Audit | AWS CloudTrail | Management events |
 
 ---
 
-## 📂 Project Structure
+## Repository Structure
 
 ```
 pickleball-cloud-security/
 ├── src/
-│   ├── server.js              # Bootstrap
-│   ├── app.js                 # Express app, Helmet, body limits
-│   ├── routes/api.js          # Public + admin endpoints
+│   ├── server.js               # Bootstrap and listen on PORT (default 3000)
+│   ├── app.js                  # Express app, Helmet headers, body limits
+│   ├── routes/api.js           # Dashboard, booking, and admin endpoints
 │   ├── middleware/
-│   │   ├── adminAuth.js       # Server-side Bearer authorization
-│   │   ├── errorHandler.js    # Safe centralized errors
-│   │   └── notFoundHandler.js
+│   │   ├── adminAuth.js        # Server-side bearer-token authorization
+│   │   ├── errorHandler.js     # Centralized, leak-free error responses
+│   │   └── notFoundHandler.js  # JSON 404
 │   ├── services/
-│   │   ├── dataStore.js       # Fictional in-memory data
-│   │   ├── validator.js       # Server-side input validation
-│   │   └── storage.js         # Local ⇄ S3 storage switch
-│   └── public/                # index.html · styles.css · app.js
-├── tests/                     # Automated test suite
-├── aws-config/                # IAM / EC2 / S3 configuration artifacts
-├── monitoring/                # CloudTrail & CloudWatch definitions
-├── security-tests/            # Evidence of security verification
-├── architecture/              # Diagrams
-├── docs/                      # Report & presentation
-├── .env.example               # Documented configuration template
+│   │   ├── dataStore.js        # Fictional in-memory courts/bookings/tournaments
+│   │   ├── validator.js        # Server-side input validation
+│   │   └── storage.js          # Local ⇄ S3 storage switch (instance role on EC2)
+│   └── public/                 # index.html · styles.css · app.js
+├── tests/
+│   ├── validator.test.js       # Validation unit tests
+│   └── api.test.js             # End-to-end API + authorization tests
+├── aws-config/                 # Reserved for IAM/EC2/S3 evidence artifacts (currently empty)
+├── monitoring/                 # Reserved for CloudTrail/CloudWatch artifacts (currently empty)
+├── security-tests/             # Reserved for manual security-test evidence (currently empty)
+├── docs/                       # Reserved for report & presentation (currently empty)
+├── .env.example                # Documented configuration template (no secrets)
+├── .gitignore                  # Blocks .env, keys, credentials, local-storage/
+├── LICENSE                     # MIT
 └── package.json
 ```
 
 ---
 
-## 🚀 Local Development
+## Prerequisites
 
-**Prerequisites:** Node.js ≥ 20 (developed on v22 LTS), npm, Git.
+- **Node.js ≥ 20** and npm — <https://nodejs.org>
+- **Git**
+- An **AWS account** only if you follow the deployment stages; the application runs fully locally without one
+
+---
+
+## Local Installation & Development
 
 ```bash
 git clone https://github.com/Harmann60/pickleball-cloud-security.git
 cd pickleball-cloud-security
 npm install
-cp .env.example .env        # optional; defaults work fine locally
-npm start                   # http://localhost:3000
+cp .env.example .env    # optional — defaults work for local mode
+npm start               # serves http://localhost:3000
 ```
 
-Or with live reload:
+Development mode with automatic restart on file changes:
 
 ```bash
 npm run dev
 ```
 
-Local mode (`STORAGE_MODE=local`) writes uploads to `local-storage/` — **no AWS account or credentials needed**.
+In local mode (`STORAGE_MODE=local`) tournament-report uploads are written to `local-storage/` on disk. No AWS credentials are required or used.
 
-### Configuration
+> **Never** commit `.env` files, private keys, or real AWS credentials to this repository. The `.gitignore` blocks the common patterns, but treat every secret as your responsibility.
+
+---
+
+## Environment Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `3000` | HTTP listen port |
-| `STORAGE_MODE` | `local` | `local` file store or `s3` on AWS |
-| `AWS_S3_BUCKET` | — | Target bucket (only when `STORAGE_MODE=s3`) |
-| `ADMIN_TOKEN` | random/start | Bearer token for admin endpoints |
-| `NODE_ENV` | `development` | `production` hides internal error details |
-
-> 🔑 `.env` is git-ignored. Never commit real configuration values or credentials.
+| `STORAGE_MODE` | `local` | `local` = file store; `s3` = Amazon S3 via instance role |
+| `AWS_S3_BUCKET` | — | Target bucket name (required when `STORAGE_MODE=s3`) |
+| `AWS_REGION` | `ap-south-1` (SDK fallback) | Set explicitly on EC2 to match the deployment region |
+| `ADMIN_TOKEN` | random per process | Bearer token for `/api/admin/*`; if unset, a random token is generated and logged at startup |
+| `NODE_ENV` | `development` | `production` hides internal error details from clients |
 
 ---
 
-## 🧪 Testing
+## Running Tests
 
 ```bash
 npm test
 ```
 
-**23 automated tests** covering:
+Runs the built-in Node test runner over `tests/*.test.js`. Last execution at this README revision: **23 passed, 0 failed**.
 
-- Input validation (injection attempts, malformed email/date/time, invalid court, past dates, bad durations)
-- Credential-material detection in uploads
-- API behaviour (booking creation, 400 on invalid input, 409 on double-booking)
-- Authorization (403 without token, 403 with wrong token, 200 with correct token)
-- Security headers and JSON 404 handling
+Coverage highlights:
 
-Plus manual security tests (evidence in `security-tests/`):
-- Direct `curl` to admin endpoints without a token → **403**
-- Anonymous S3 access attempt → **AccessDenied**
-- Unencrypted S3 upload attempt → **AccessDenied** by bucket policy
+- Rejection of script-injection names, malformed emails, invalid dates/times, unknown courts, past dates and invalid durations
+- Rejection of private-key material in report uploads
+- Booking creation, double-booking conflict (HTTP 409), and invalid input (HTTP 400)
+- Admin authorization: HTTP 403 without a token, HTTP 403 with a wrong token, HTTP 200 with the correct token
+- Security response headers and JSON 404 handling
 
 ---
 
-## ☁️ AWS Deployment
+## AWS Deployment Overview
 
-Provisioning is deliberately **step-by-step** so every control can be evidenced:
+Deployment is performed step-by-step so every control can be inspected and evidenced. Reported state of the current deployment:
 
-| Stage | Component | Key control |
+| Component | Reported state | Evidence in repo? |
 |---|---|---|
-| 5 | IAM roles, users, policies | Least privilege, no long-lived keys on EC2 |
-| 6 | S3 bucket | Block Public Access, SSE-S3, deny-by-default policy |
-| 7 | EC2 + security group | SSH restricted to one IP, only app port exposed |
-| 8 | Application deployment | systemd service, env vars, health check |
-| 9 | CloudTrail + CloudWatch | Management-event audit, alarm on sensitive API calls |
-| 10 | Security tests & misconfiguration lab | Finding → remediation → verification evidence |
+| EC2 instance | `t3.micro`, Amazon Linux 2023, region `ap-northeast-1`, Node.js 20.20.2 | No |
+| Process management | systemd service `pickleball-app`, app on port 3000 | No |
+| IAM | Instance role `PickleballEC2S3Role` supplying temporary credentials | No (policy JSON not committed) |
+| S3 | Private bucket; all four Block Public Access settings on; SSE-S3 default encryption | No |
+| EBS | Encrypted root volume | No |
+| Security group | Inbound 22/tcp from a single `/32`; no public inbound rule for 3000 | No |
+| CloudTrail | Management-event evidence of AWS API activity | No (artifacts pending in `monitoring/`) |
 
-Full commands and verification steps are documented in `docs/report/`.
+None of the deployment artifacts above are version-controlled yet; they are recorded here from operator console checks and will be archived under `aws-config/` and `monitoring/` as evidence.
 
----
+**Deployment pattern used on the instance** (for reference when evidence is archived):
 
-## 💰 Cost Control
-
-Designed for **₹0 within the AWS Free Tier** (12 months from account creation):
-
-| Resource | Free-tier usage |
-|---|---|
-| EC2 t3.micro | 750 hours/month |
-| S3 | 5 GB-months, 20K GETs, 2K PUTs — we use kilobytes |
-| CloudTrail | First copy of management events — free |
-| CloudWatch | 10 alarms & custom metrics free tier — we use ~1 |
-| SNS | 1,000 email notifications/month — we use ~0–1 |
-
-**Guardrails applied:** AWS Free Tier billing alerts enabled, budget alert at minimal threshold, no billable services beyond the list above, and complete cleanup instructions for every resource.
+```bash
+# application directory owned by a dedicated user; node_modules from npm ci
+# environment values written to the systemd unit or /etc/environment
+sudo systemctl enable --now pickleball-app
+sudo systemctl status pickleball-app
+```
 
 ---
 
-## 🗺️ Roadmap
+## Security Verification & Evidence
 
-- [x] Stage 1 — Environment & account baseline
-- [x] Stage 2 — Minimum architecture finalized
-- [x] Stage 3 — Application built & tested locally
-- [x] Stage 4 — Functionality & validation testing
-- [ ] Stage 5 — IAM roles, users & least-privilege policies
-- [ ] Stage 6 — Private, encrypted S3 bucket
-- [ ] Stage 7 — Hardened EC2 & security group
-- [ ] Stage 8 — Application deployment
-- [ ] Stage 9 — CloudTrail & CloudWatch monitoring
-- [ ] Stage 10 — Security tests & misconfiguration remediation
-- [ ] Stage 11 — Report, presentation & viva preparation
+**Proven by the automated suite (repeatable locally):**
 
----
+```bash
+# admin endpoint without a token → HTTP 403
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/admin/bookings
+# invalid booking payload → HTTP 400 with field-level errors
+curl -s -X POST http://localhost:3000/api/bookings \
+  -H 'Content-Type: application/json' \
+  -d '{"playerName":"<script>x</script>","email":"bad","courtId":"ZZ","date":"2020-01-01","startTime":"99:99","durationMins":5}'
+```
 
-## ⚠️ Limitations & Future Work
+**Verified locally outside the suite:** Helmet security headers present on responses; server-side validation error messages returned as structured JSON.
 
-**Honest limitations (not bugs — deliberate scope choices):**
+**Operator-reported (console checks, artifacts not yet in this repository):** S3 Block Public Access, SSE-S3 encryption, encrypted root volume, security-group rules, CloudTrail management events, IAM role existence.
 
-- HTTP only on port 3000; TLS requires a domain + ACM/CloudFront (documented, not implemented).
-- Admin control is a **prototype token**, not a full authentication system (no passwords, sessions or lockout).
-- In-memory data store — bookings reset on server restart.
-- Single instance, no multi-AZ, no autoscaling — appropriate for a demo, not for production.
-- Unrestricted outbound traffic from the instance (common trade-off, flagged in the report).
-
-**Future improvements:** HTTPS via CloudFront + ACM · Cognito user pools · RDS/Aurora with parameterized queries · AWS WAF · GuardDuty · AWS Config conformance packs · CI/CD pipeline with security scanning.
+**Not yet performed:** live tests of anonymous S3 access denial, unencrypted-upload rejection by bucket policy, and CloudWatch/SNS alerting (not implemented). These are planned evidence items — this README does not claim them as done.
 
 ---
 
-## 📜 License
+## Cost Considerations
 
-[MIT](LICENSE)
+This project was **designed** to sit inside AWS Free Tier limits, but costs are not guaranteed to be zero. Actual spend depends on your account's free-tier eligibility (12 months from account creation), region, usage patterns and current AWS pricing.
+
+Typical free-tier allowances relevant to this design: EC2 `t3.micro` (750 hours/month), S3 storage and request volume far above this project's kilobyte-scale usage, and the first copy of CloudTrail management events. Services such as CloudWatch alarms, SNS notifications and data-transfer charges can incur small costs outside those allowances.
+
+- **Billing alerts and budgets are notifications, not spending caps.** They warn you; they do not stop resources.
+- The AWS console showed a `$0.00` estimate at a prior check, with credits available — a historical observation, not a promise.
+- Every billable resource created during deployment (EC2 instance, S3 bucket, CloudTrail trail) must be deleted or emptied during cleanup. Terminate the instance, empty and delete the bucket, and delete the trail when the evaluation is complete.
 
 ---
 
-<p align="center">
-  Built as a college mini-project demonstration · Fictional data only · Not for production use
-</p>
+## Known Limitations
+
+- **HTTP only.** No TLS certificate or HTTPS endpoint has been implemented. Do not transmit real data over the current deployment.
+- **Prototype authorization, not authentication.** Admin endpoints share one bearer token. There are no user accounts, password hashing, sessions, or lockout controls — deliberately out of scope and labelled as a prototype.
+- **In-memory data store.** Bookings exist only in process memory and reset when the service restarts. No database is used.
+- **Single instance.** No multi-AZ redundancy, autoscaling or load balancing.
+- **Unrestricted outbound traffic** from the instance (needed for updates and AWS APIs).
+- **Deployment artifacts are not in the repository yet.** IAM policy JSON, security-group definitions, trail configuration and console evidence are reported but not archived here.
+- **`AWS_REGION` must be set explicitly on EC2.** The SDK fallback in `storage.js` is `ap-south-1`, while the deployment region is `ap-northeast-1` — a mismatch would fail S3 calls.
+- **Not penetration-tested or audited.** Passing unit tests does not prove the absence of vulnerabilities.
+
+---
+
+## Future Improvements
+
+- HTTPS via ACM certificate and a CloudFront or Application Load Balancer front end
+- AWS-managed user authentication (e.g. Cognito) replacing the prototype token
+- Amazon RDS or DynamoDB with parameterized queries for persistent bookings
+- CloudWatch metric filter + alarm + SNS notification for sensitive API activity
+- Committed evidence artifacts: IAM policy JSON, security-group rules, CloudTrail excerpts, misconfiguration before/after screenshots
+- AWS Config / GuardDuty and an S3 bucket policy enforcing `aws:SecureTransport` and `aws:Referer`/encryption conditions
+- CI pipeline running the test suite and secret scanning on every push
+
+---
+
+## License
+
+[MIT](LICENSE) © Harman
