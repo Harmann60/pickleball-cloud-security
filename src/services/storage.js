@@ -1,18 +1,62 @@
 'use strict';
 
 // Storage abstraction:
-//   STORAGE_MODE=local  -> writes to ./local-storage (local dev, no AWS)
-//   STORAGE_MODE=s3     -> PutObject to AWS_S3_BUCKET using the EC2 instance
-//                          role (no access keys anywhere in this codebase)
+//   STORAGE_MODE=local  -> writes to ./local-storage (local dev and tests)
+//   STORAGE_MODE=s3     -> PutObject to AWS_S3_BUCKET using the AWS SDK
+//                          default credential chain (EC2 role or Vercel env credentials)
 
 const fs = require('fs/promises');
 const path = require('path');
 
 const mode = () => (process.env.STORAGE_MODE || 'local').toLowerCase();
 
-async function saveReport(key, body) {
+function isVercelRuntime() {
+  return process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+}
+
+function configurationError(message) {
+  const err = new Error(`Storage configuration error: ${message}`);
+  err.status = 500;
+  return err;
+}
+
+function validateStorageConfiguration() {
+  const storageMode = mode();
+  if (storageMode !== 'local' && storageMode !== 's3') {
+    throw configurationError('STORAGE_MODE must be either "local" or "s3".');
+  }
+
+  if (isVercelRuntime() && storageMode !== 's3') {
+    throw configurationError('Vercel deployments must set STORAGE_MODE=s3; local storage is not supported.');
+  }
+
+  if (storageMode !== 's3') {
+    return;
+  }
+
+  if (!process.env.AWS_S3_BUCKET) {
+    throw configurationError('AWS_S3_BUCKET is required when STORAGE_MODE=s3.');
+  }
+
+  if (isVercelRuntime()) {
+    const requiredVercelSettings = [
+      'AWS_REGION',
+      'AWS_ACCESS_KEY_ID',
+      'AWS_SECRET_ACCESS_KEY',
+    ];
+    const missing = requiredVercelSettings.filter((name) => !process.env[name]);
+    if (missing.length > 0) {
+      throw configurationError(
+        `Vercel S3 storage requires these environment variables: ${missing.join(', ')}.`
+      );
+    }
+  }
+}
+
+async function saveReport(key, body, { s3Client } = {}) {
+  validateStorageConfiguration();
   if (mode() === 's3') {
-    return saveToS3(key, body);
+    return saveToS3(key, body, s3Client);
   }
   return saveToLocal(key, body);
 }
@@ -27,16 +71,17 @@ async function saveToLocal(key, body) {
   return { location: `local-storage/${safeKey}`, mode: 'local' };
 }
 
-async function saveToS3(key, body) {
+async function saveToS3(key, body, s3Client) {
   const bucket = process.env.AWS_S3_BUCKET;
   if (!bucket) {
-    const err = new Error('AWS_S3_BUCKET is not set but STORAGE_MODE=s3.');
-    err.status = 500;
-    throw err;
+    throw configurationError('AWS_S3_BUCKET is required when STORAGE_MODE=s3.');
   }
-  // Lazy require so local mode never loads the SDK.
   const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-  const client = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
+  const client =
+    s3Client ||
+    new S3Client({
+      region: process.env.AWS_REGION || 'ap-south-1',
+    });
   await client.send(
     new PutObjectCommand({
       Bucket: bucket,
@@ -51,4 +96,4 @@ async function saveToS3(key, body) {
   return { location: `s3://${bucket}/${key}`, mode: 's3' };
 }
 
-module.exports = { saveReport };
+module.exports = { saveReport, validateStorageConfiguration, isVercelRuntime };
