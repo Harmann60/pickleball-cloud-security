@@ -6,10 +6,14 @@ const path = require('path');
 require('dotenv').config();
 
 const apiRouter = require('./routes/api');
+const cors = require('./middleware/cors');
 const errorHandler = require('./middleware/errorHandler');
 const notFoundHandler = require('./middleware/notFoundHandler');
 
 const app = express();
+
+// Opt-in CORS; no effect unless ALLOWED_ORIGIN is set to one trusted origin.
+app.use(cors);
 
 // Secure HTTP headers (helmet sets CSP, X-Frame-Options, HSTS, etc.)
 app.use(

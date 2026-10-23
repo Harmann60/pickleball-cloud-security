@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-4.x-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![AWS](https://img.shields.io/badge/AWS-EC2%20IAM%20S3%20CloudTrail-FF9900?logo=amazonaws&logoColor=white)](https://aws.amazon.com/)
-[![Tests](https://img.shields.io/badge/tests-23%20passing-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-27%20passing-brightgreen)](#running-tests)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 > **Scope note:** this is a security demonstration with fictional data. It is not a production booking platform. Admin access uses a prototype shared bearer token — not an authentication system — and the app is served over HTTP only.
@@ -25,6 +25,7 @@
 - [Local Installation & Development](#local-installation--development)
 - [Environment Configuration](#environment-configuration)
 - [Running Tests](#running-tests)
+- [Frontend (Courtly)](#frontend-courtly)
 - [AWS Deployment Overview](#aws-deployment-overview)
 - [Security Verification & Evidence](#security-verification--evidence)
 - [Cost Considerations](#cost-considerations)
@@ -66,7 +67,7 @@ The application code itself is deliberately simple. The project's value is in th
 - **Administrative API** — every admin endpoint enforces a server-side bearer-token check; requests without the token receive HTTP 403 even when called directly with `curl`
 - **Tournament report storage** — authorized uploads go to an S3 `tournament-reports/` prefix via the EC2 instance role, or to a local directory in development mode
 - **Hardened HTTP behaviour** — Helmet security headers (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`), 10 KB JSON body limit, centralized error handling that never returns stack traces to clients
-- **Automated test suite** — 23 tests covering validation, authorization and API behaviour
+- **Automated test suite** — 27 tests covering validation, authorization, API behaviour and opt-in CORS policy
 
 ---
 
@@ -109,12 +110,13 @@ flowchart TD
 | S3 encryption at rest | SSE-S3 (AES-256) as bucket default; per-object `ServerSideEncryption: AES256` in code | Code verified; bucket setting operator-reported | Partially verified |
 | EC2 volume encryption | Encrypted EBS root volume | Operator console check at launch | Partially verified |
 | Security group restriction | SSH limited to one `/32` source; no public inbound rule for :3000 | Operator console check | Partially verified |
+| CORS policy (opt-in) | Disabled unless `ALLOWED_ORIGIN` names one trusted origin; no wildcard | CORS unit tests (`tests/cors.test.js`) — pass | **Verified** (local) |
 | Admin API authorization | Server-side bearer token, constant-time comparison, 403 on missing/wrong token | Automated tests (`tests/api.test.js`) — pass | **Verified** |
 | Input validation | Regex + length + domain checks; credential-material rejection on uploads | Automated tests (`tests/validator.test.js`) — pass | **Verified** |
 | Security headers | Helmet with CSP, frame/deny options, `nosniff`, referrer policy | Config in `src/app.js`; headers confirmed in local responses | **Verified** (local) |
 | Error handling | Centralized handler; internals never sent to clients | Code review of `src/middleware/errorHandler.js` | Implemented |
 | Git secret hygiene | `.env`, `*.pem`, `*.key`, `credentials`, `local-storage/` ignored; no secret files tracked | `git ls-files` inspection | **Verified** |
-| Automated tests | 23 tests: validation, authz, double-booking, headers, 404 handling | Suite executed at README revision: 23 pass / 0 fail | **Verified** (local) |
+| Automated tests | 23 tests: validation, authz, double-booking, headers, 404 handling + 4 CORS unit tests | Suite executed at README revision: 27 pass / 0 fail | **Verified** (local) |
 | CloudTrail auditing | Management-event evidence collected for AWS API activity | Operator-reported evidence; trail configuration not in repo | Partially verified |
 | CloudWatch alarm / SNS | — | Not implemented | **Planned** |
 | HTTPS | — | Not implemented | **Planned** |
@@ -128,7 +130,8 @@ flowchart TD
 |---|---|---|
 | Runtime | Node.js ≥ 20 | Development on Node 22 LTS; deployed runtime observed as 20.20.2 |
 | Web framework | Express 4.x | `src/app.js` — Helmet, JSON body limit, static files |
-| Frontend | Vanilla HTML/CSS/JS | Dynamic content rendered via `textContent` only (no `innerHTML`) |
+| Frontend (legacy) | Vanilla HTML/CSS/JS served by Express | Static demo UI in `src/public/` |
+| Frontend (Courtly) | React 19 + Vite 6 + Tailwind CSS 4 + React Router 7 | SPA in `frontend/`, deployable to Vercel |
 | AWS SDK | `@aws-sdk/client-s3` v3 | Loaded only when `STORAGE_MODE=s3` |
 | Tests | Built-in `node:test` runner | Zero extra test dependencies |
 | Hosting | Amazon EC2 `t3.micro`, Amazon Linux 2023 | Managed by systemd (`pickleball-app`) |
@@ -147,6 +150,7 @@ pickleball-cloud-security/
 │   ├── routes/api.js           # Dashboard, booking, and admin endpoints
 │   ├── middleware/
 │   │   ├── adminAuth.js        # Server-side bearer-token authorization
+│   │   ├── cors.js             # Opt-in single-origin CORS (disabled by default)
 │   │   ├── errorHandler.js     # Centralized, leak-free error responses
 │   │   └── notFoundHandler.js  # JSON 404
 │   ├── services/
@@ -154,9 +158,14 @@ pickleball-cloud-security/
 │   │   ├── validator.js        # Server-side input validation
 │   │   └── storage.js          # Local ⇄ S3 storage switch (instance role on EC2)
 │   └── public/                 # index.html · styles.css · app.js
+├── frontend/                   # Courtly React SPA (Vercel-ready, see frontend/README.md)
+│   ├── src/                    # pages, components, contexts, API client
+│   ├── vercel.json             # SPA rewrite
+│   └── package.json
 ├── tests/
 │   ├── validator.test.js       # Validation unit tests
-│   └── api.test.js             # End-to-end API + authorization tests
+│   ├── api.test.js             # End-to-end API + authorization tests
+│   └── cors.test.js            # Opt-in CORS policy tests
 ├── aws-config/                 # Reserved for IAM/EC2/S3 evidence artifacts (currently empty)
 ├── monitoring/                 # Reserved for CloudTrail/CloudWatch artifacts (currently empty)
 ├── security-tests/             # Reserved for manual security-test evidence (currently empty)
@@ -209,6 +218,35 @@ In local mode (`STORAGE_MODE=local`) tournament-report uploads are written to `l
 | `AWS_REGION` | `ap-south-1` (SDK fallback) | Set explicitly on EC2 to match the deployment region |
 | `ADMIN_TOKEN` | random per process | Bearer token for `/api/admin/*`; if unset, a random token is generated and logged at startup |
 | `NODE_ENV` | `development` | `production` hides internal error details from clients |
+| `ALLOWED_ORIGIN` | unset (CORS off) | Exactly one trusted frontend origin, e.g. `https://courtly.vercel.app`; no wildcard |
+
+---
+
+## Frontend (Courtly)
+
+A polished React SPA lives in [`frontend/`](frontend/README.md). It consumes the existing
+API — no backend rewrite, no direct S3 access, no AWS credentials in the browser.
+
+```bash
+# terminal 1 — backend
+npm start                       # http://localhost:3000
+
+# terminal 2 — frontend
+cd frontend
+npm install
+npm run dev                     # http://localhost:5173 (proxies /api to :3000)
+```
+
+Frontend scripts: `npm run dev`, `npm run build`, `npm run preview`, `npm run lint`.
+Production deploy: import the repo in Vercel, set the project root to `frontend/`,
+and set `VITE_API_BASE_URL` to a reachable HTTPS API origin.
+
+**Important:** the EC2 security group does not expose port 3000 publicly, and no
+HTTPS API endpoint is verified. A Vercel deployment therefore cannot reach the
+backend until you add a TLS reverse proxy (or equivalent secure endpoint) and set
+`ALLOWED_ORIGIN` on the backend. See [`frontend/README.md`](frontend/README.md#production-https-api-connectivity--required)
+for the options and trade-offs. The admin token is a prototype control entered per
+session and held in memory only.
 
 ---
 
@@ -218,7 +256,7 @@ In local mode (`STORAGE_MODE=local`) tournament-report uploads are written to `l
 npm test
 ```
 
-Runs the built-in Node test runner over `tests/*.test.js`. Last execution at this README revision: **23 passed, 0 failed**.
+Runs the built-in Node test runner over `tests/*.test.js`. Last execution at this README revision: **27 passed, 0 failed**.
 
 Coverage highlights:
 
