@@ -9,8 +9,13 @@ const apiRouter = require('./routes/api');
 const cors = require('./middleware/cors');
 const errorHandler = require('./middleware/errorHandler');
 const notFoundHandler = require('./middleware/notFoundHandler');
+const { validateStorageConfiguration } = require('./services/storage');
 
 const app = express();
+
+// Fail during startup instead of allowing a deployed function to fall back to
+// its read-only filesystem.
+validateStorageConfiguration();
 
 // Opt-in CORS; no effect unless ALLOWED_ORIGIN is set to one trusted origin.
 app.use(cors);
